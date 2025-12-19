@@ -184,13 +184,16 @@
                     <input type="hidden" id="edit-task-id"> <!-- ID oculto para edição -->
                     <input type="text" id="new-task-title" placeholder="O que precisa ser feito?" class="w-full p-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#2fc36a] focus:border-[#2fc36a] text-sm shadow-sm transition-all outline-none" autocomplete="off">
                     <div class="flex gap-2">
+                        <!-- CAMPO DE DATA ADICIONADO -->
+                        <input type="date" id="new-task-date" class="p-2.5 border border-gray-300 rounded-lg text-sm bg-white shadow-sm focus:ring-2 focus:ring-[#2fc36a] focus:border-[#2fc36a] outline-none text-gray-600" title="Data da Tarefa">
+                        
                         <select id="new-task-responsible" class="p-2.5 border border-gray-300 rounded-lg text-sm flex-1 bg-white shadow-sm focus:ring-2 focus:ring-[#2fc36a] focus:border-[#2fc36a] outline-none">
                             <option value="">Selecione o Responsável</option>
                         </select>
-                        <button onclick="handleTaskSubmit()" id="btn-save-task" class="bg-[#2fc36a] hover:bg-[#25a056] text-white px-5 py-2 rounded-lg font-bold text-sm transition flex items-center gap-2 shadow-sm whitespace-nowrap">
-                            <i class="fas fa-plus" id="btn-icon"></i> <span id="btn-text">Adicionar</span>
-                        </button>
                     </div>
+                    <button onclick="handleTaskSubmit()" id="btn-save-task" class="w-full bg-[#2fc36a] hover:bg-[#25a056] text-white px-5 py-2.5 rounded-lg font-bold text-sm transition flex items-center justify-center gap-2 shadow-sm">
+                        <i class="fas fa-plus" id="btn-icon"></i> <span id="btn-text">Adicionar Tarefa</span>
+                    </button>
                 </div>
             </div>
         </div>
@@ -678,6 +681,7 @@
 
             document.getElementById('modal-client-name').innerHTML = `<i class="fas fa-building text-gray-400"></i> ${client.nome_empresa}`;
             
+            // Format Title Date
             const parts = dateStr.split('-');
             const dateObj = new Date(parts[0], parts[1]-1, parts[2]);
             const dateFormatted = dateObj.toLocaleDateString('pt-BR', { weekday: 'long', day: 'numeric', month: 'long' });
@@ -763,10 +767,11 @@
             document.getElementById('edit-task-id').value = '';
             document.getElementById('new-task-title').value = '';
             document.getElementById('new-task-responsible').value = '';
+            document.getElementById('new-task-date').value = activeModalDate || '';
             
             // UI Reset
             document.getElementById('form-title').innerText = 'Adicionar Nova Tarefa';
-            document.getElementById('btn-text').innerText = 'Adicionar';
+            document.getElementById('btn-text').innerText = 'Adicionar Tarefa';
             document.getElementById('btn-icon').className = 'fas fa-plus';
             document.getElementById('btn-save-task').classList.remove('bg-orange-500', 'hover:bg-orange-600');
             document.getElementById('btn-save-task').classList.add('bg-[#2fc36a]', 'hover:bg-[#25a056]');
@@ -781,6 +786,11 @@
             document.getElementById('edit-task-id').value = task.id_tarefa;
             document.getElementById('new-task-title').value = task.titulo_tarefa;
             document.getElementById('new-task-responsible').value = task.responsavel_id || '';
+            
+            // Preenche a data da tarefa no input
+            if(task.prazo_final) {
+                document.getElementById('new-task-date').value = extractDateISO(task.prazo_final);
+            }
 
             // UI Update
             document.getElementById('form-title').innerText = 'Editando Tarefa';
@@ -805,8 +815,10 @@
             const taskId = document.getElementById('edit-task-id').value;
             const title = document.getElementById('new-task-title').value.trim();
             const respId = document.getElementById('new-task-responsible').value;
+            const newDate = document.getElementById('new-task-date').value;
 
             if (!title) { showToast("O título é obrigatório."); return; }
+            if (!newDate) { showToast("A data é obrigatória."); return; }
 
             const btn = document.getElementById('btn-save-task');
             const originalHtml = btn.innerHTML;
@@ -819,17 +831,22 @@
                 if(taskIdx !== -1) {
                     appData.tasks[taskIdx].titulo_tarefa = title;
                     appData.tasks[taskIdx].responsavel_id = respId || null;
+                    appData.tasks[taskIdx].prazo_final = newDate; // Atualiza a data localmente
                     renderModalTasks(); // Update UI immediately
                 }
 
                 const { error } = await dbClient.from('tarefas').update({
                     titulo_tarefa: title,
-                    responsavel_id: respId || null
+                    responsavel_id: respId || null,
+                    prazo_final: newDate
                 }).eq('id_tarefa', taskId);
 
                 if (error) throw error;
                 
                 showToast("Tarefa atualizada!");
+                
+                // Se a data mudou, precisamos atualizar o dashboard principal também
+                renderDashboard();
                 resetForm();
 
             } catch (err) {
@@ -844,11 +861,14 @@
         async function createTask() {
             const titleInput = document.getElementById('new-task-title');
             const respInput = document.getElementById('new-task-responsible');
+            const dateInput = document.getElementById('new-task-date');
             
             const title = titleInput.value.trim();
             const respId = respInput.value;
+            const taskDate = dateInput.value;
 
             if (!title) { showToast("Digite o título da tarefa."); return; }
+            if (!taskDate) { showToast("Selecione uma data."); return; }
 
             const btn = document.getElementById('btn-save-task');
             const originalHtml = btn.innerHTML;
@@ -862,7 +882,7 @@
                     id_cliente: activeModalClient.id_cliente,
                     titulo_tarefa: title,
                     responsavel_id: respId || null,
-                    prazo_final: activeModalDate, 
+                    prazo_final: taskDate, 
                     concluido: false,
                     ordem: 0
                 };

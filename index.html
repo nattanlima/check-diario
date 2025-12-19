@@ -1,0 +1,613 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Painel Diário de Operações - Prisme Sales</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+        body { font-family: 'Inter', sans-serif; background-color: #f3f4f6; }
+        
+        /* Scrollbar fina */
+        ::-webkit-scrollbar { width: 8px; height: 8px; }
+        ::-webkit-scrollbar-track { background: #f1f5f9; }
+        ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+
+        .cell-hover:hover { background-color: #eff6ff; cursor: pointer; }
+        .task-dot { height: 8px; width: 8px; border-radius: 50%; display: inline-block; margin-right: 2px; }
+    </style>
+</head>
+<body class="text-gray-800 h-screen flex flex-col overflow-hidden">
+
+    <!-- TELA DE LOGIN (Reaproveitada do CRM) -->
+    <div id="login-screen" class="fixed inset-0 flex items-center justify-center bg-slate-100 z-50">
+        <div class="w-full max-w-sm p-8 space-y-6 bg-white rounded-xl shadow-md">
+            <div class="text-center">
+                <img src="https://crm.prismeapp.com.br/web/binary/company_logo" alt="Logo" class="mx-auto h-16 w-auto mb-4" onerror="this.style.display='none'">
+                <h2 class="text-2xl font-bold text-gray-900">Checklist Diário</h2>
+                <p class="text-gray-500 text-sm">Use seu login do CRM Prisme</p>
+            </div>
+            <div id="login-error" class="hidden p-3 text-sm text-red-700 bg-red-100 rounded-lg"></div>
+            <form id="login-form" class="space-y-4">
+                <div><label class="text-sm font-medium text-gray-700">Email</label><input id="email" type="email" required class="w-full p-2 border rounded-lg"></div>
+                <div><label class="text-sm font-medium text-gray-700">Senha</label><input id="senha" type="password" required class="w-full p-2 border rounded-lg"></div>
+                <button type="submit" class="w-full py-2 text-white bg-green-600 rounded-lg hover:bg-green-700 font-bold">Entrar</button>
+            </form>
+        </div>
+    </div>
+
+    <!-- APP -->
+    <div id="app-screen" class="hidden flex-col h-full">
+        
+        <!-- Header -->
+        <header class="bg-white border-b border-gray-200 px-6 py-3 flex justify-between items-center shadow-sm z-20">
+            <div class="flex items-center gap-4">
+                <div class="bg-blue-600 text-white p-2 rounded-lg"><i class="fas fa-calendar-check"></i></div>
+                <div>
+                    <h1 class="text-xl font-bold text-gray-800">Operação Diária</h1>
+                    <p class="text-xs text-gray-500" id="user-info-display">Carregando...</p>
+                </div>
+            </div>
+
+            <!-- Navegação de Datas -->
+            <div class="flex items-center bg-gray-100 rounded-lg p-1">
+                <button onclick="changeWeek(-1)" class="p-2 hover:bg-white rounded-md text-gray-600 transition"><i class="fas fa-chevron-left"></i></button>
+                <span id="current-week-label" class="mx-4 font-semibold text-gray-700 min-w-[200px] text-center text-sm">...</span>
+                <button onclick="changeWeek(1)" class="p-2 hover:bg-white rounded-md text-gray-600 transition"><i class="fas fa-chevron-right"></i></button>
+            </div>
+
+            <div class="flex items-center gap-3">
+                <button onclick="logout()" class="text-sm text-red-500 hover:text-red-700 font-medium">Sair</button>
+            </div>
+        </header>
+
+        <!-- Main Content (Scrollable) -->
+        <main class="flex-grow overflow-auto bg-gray-50 p-6" id="main-container">
+            <div id="loader" class="flex justify-center mt-20"><i class="fas fa-spinner fa-spin text-4xl text-blue-500"></i></div>
+            <div id="tables-container" class="space-y-8 pb-10"></div>
+        </main>
+    </div>
+
+    <!-- MODAL DE TAREFAS/DATA -->
+    <div id="task-modal" class="fixed inset-0 bg-black bg-opacity-50 hidden flex items-center justify-center z-50 p-4">
+        <div class="bg-white rounded-xl shadow-2xl w-full max-w-lg overflow-hidden transform transition-all scale-100">
+            <!-- Header Modal -->
+            <div class="bg-gray-50 px-6 py-4 border-b flex justify-between items-center">
+                <div>
+                    <h3 class="text-lg font-bold text-gray-800" id="modal-client-name">Cliente</h3>
+                    <p class="text-sm text-blue-600 font-medium" id="modal-date-display">Data</p>
+                </div>
+                <button onclick="closeModal()" class="text-gray-400 hover:text-gray-600 text-2xl">&times;</button>
+            </div>
+
+            <!-- Lista de Tarefas Existentes -->
+            <div class="p-6 max-h-[40vh] overflow-y-auto bg-white" id="modal-task-list">
+                <!-- Injetado via JS -->
+            </div>
+
+            <!-- Formulário Nova Tarefa -->
+            <div class="bg-gray-50 p-6 border-t">
+                <h4 class="text-xs font-bold text-gray-500 uppercase mb-3">Adicionar Nova Tarefa para este dia</h4>
+                <div class="space-y-3">
+                    <input type="text" id="new-task-title" placeholder="O que precisa ser feito?" class="w-full p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm">
+                    <div class="flex gap-2">
+                        <select id="new-task-responsible" class="p-2 border border-gray-300 rounded-lg text-sm flex-1">
+                            <option value="">Selecione o Responsável</option>
+                        </select>
+                        <button onclick="createTask()" id="btn-save-task" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg font-bold text-sm transition flex items-center gap-2">
+                            <i class="fas fa-plus"></i> Adicionar
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- TOAST -->
+    <div id="toast" class="fixed bottom-5 right-5 bg-gray-800 text-white py-2 px-4 rounded-lg shadow-lg opacity-0 transform translate-y-2 transition-all duration-300 z-50"></div>
+
+    <script>
+        // --- CONFIGURAÇÃO SUPABASE (Do seu código) ---
+        const SUPABASE_URL = 'https://ccenxfyqwtfpexltuwrn.supabase.co';
+        const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNjZW54Znlxd3RmcGV4bHR1d3JuIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTMyNzE1MTMsImV4cCI6MjA2ODg0NzUxM30.6un31sODuCyd5Dz_pR_kn656k74jjh5CNAfF0YteT7I';
+        const { createClient } = supabase;
+        const dbClient = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+        // --- ESTADO GLOBAL ---
+        let appData = { clients: [], tags: [], client_tags: [], tasks: [], users: [] };
+        let currentUser = null;
+        let currentWeekStart = getMonday(new Date()); // Começa na segunda-feira atual
+        
+        // Estado do Modal
+        let activeModalClient = null;
+        let activeModalDate = null; // String YYYY-MM-DD
+
+        // --- Mapeamento Visual de Serviços (Baseado no seu CSV) ---
+        // Vamos tentar encontrar as tags no banco, se não achar, usamos fallback
+        const SERVICE_GROUPS = {
+            'TAG-01': { name: 'Chatbot', color: 'blue', icon: 'fa-robot' },
+            'TAG-02': { name: 'Tráfego Pago', color: 'green', icon: 'fa-chart-line' },
+            'TAG-03': { name: 'Marketing', color: 'purple', icon: 'fa-bullhorn' },
+            'TAG-04': { name: 'Vendas', color: 'orange', icon: 'fa-headset' }
+        };
+
+        // --- INICIALIZAÇÃO ---
+        document.addEventListener('DOMContentLoaded', () => {
+            const savedUser = localStorage.getItem('crmUser');
+            if (savedUser) {
+                currentUser = JSON.parse(savedUser);
+                initApp();
+            } else {
+                document.getElementById('login-screen').classList.remove('hidden');
+            }
+
+            // Setup Login Form
+            document.getElementById('login-form').addEventListener('submit', async (e) => {
+                e.preventDefault();
+                const email = document.getElementById('email').value;
+                const senha = document.getElementById('senha').value; // No seu código original era 'telefone' que guardava a senha? Vou assumir senha field.
+                
+                try {
+                    // Usando a mesma lógica do seu CRM (tabela usuarios, campo telefone como senha se for o caso)
+                    // Ajuste: No seu código original o campo senha tinha ID 'telefone'. Vou tentar buscar pelo campo telefone usando o valor da senha.
+                    const { data, error } = await dbClient.from('usuarios')
+                        .select('*')
+                        .eq('email', email)
+                        .eq('telefone', senha) // Usando a lógica do seu código original
+                        .single();
+
+                    if (error || !data) throw new Error("Login falhou. Verifique credenciais.");
+                    
+                    currentUser = data;
+                    localStorage.setItem('crmUser', JSON.stringify(currentUser));
+                    document.getElementById('login-screen').classList.add('hidden');
+                    initApp();
+                } catch (err) {
+                    document.getElementById('login-error').innerText = err.message;
+                    document.getElementById('login-error').classList.remove('hidden');
+                }
+            });
+        });
+
+        function logout() {
+            localStorage.removeItem('crmUser');
+            location.reload();
+        }
+
+        async function initApp() {
+            document.getElementById('app-screen').classList.remove('hidden');
+            document.getElementById('user-info-display').innerText = `Logado como: ${currentUser.nome_usuario}`;
+            
+            await fetchData();
+            setupRealtime();
+            renderDashboard();
+        }
+
+        // --- DATA FETCHING ---
+        async function fetchData() {
+            // Buscando tudo necessário
+            const [clientsRes, tagsRes, ctRes, tasksRes, usersRes] = await Promise.all([
+                dbClient.from('clientes').select('*'),
+                dbClient.from('tags').select('*'),
+                dbClient.from('cliente_tags').select('*'),
+                dbClient.from('tarefas').select('*'),
+                dbClient.from('usuarios').select('*')
+            ]);
+
+            appData.clients = clientsRes.data || [];
+            appData.tags = tagsRes.data || [];
+            appData.client_tags = ctRes.data || [];
+            appData.tasks = tasksRes.data || [];
+            appData.users = usersRes.data || [];
+
+            // Preencher select de responsáveis no modal
+            const select = document.getElementById('new-task-responsible');
+            select.innerHTML = '<option value="">Selecione o Responsável</option>';
+            appData.users.forEach(u => {
+                const opt = document.createElement('option');
+                opt.value = u.id_usuario;
+                opt.text = u.nome_usuario;
+                select.appendChild(opt);
+            });
+
+            document.getElementById('loader').classList.add('hidden');
+        }
+
+        function setupRealtime() {
+            dbClient.channel('checklist-changes')
+                .on('postgres_changes', { event: '*', schema: 'public', table: 'tarefas' }, payload => {
+                    handleRealtimeTask(payload);
+                })
+                .subscribe();
+        }
+
+        function handleRealtimeTask(payload) {
+            const { eventType, new: newRecord, old: oldRecord } = payload;
+            if (eventType === 'INSERT') {
+                appData.tasks.push(newRecord);
+            } else if (eventType === 'UPDATE') {
+                const idx = appData.tasks.findIndex(t => t.id_tarefa === newRecord.id_tarefa);
+                if (idx !== -1) appData.tasks[idx] = newRecord;
+            } else if (eventType === 'DELETE') {
+                appData.tasks = appData.tasks.filter(t => t.id_tarefa !== oldRecord.id_tarefa);
+            }
+            // Re-render apenas da tabela ou célula seria ideal, mas vamos renderizar tudo por simplicidade
+            renderDashboard(); 
+        }
+
+        // --- LOGICA DE DATAS ---
+        function getMonday(d) {
+            d = new Date(d);
+            var day = d.getDay(),
+                diff = d.getDate() - day + (day == 0 ? -6 : 1); // adjust when day is sunday
+            return new Date(d.setDate(diff));
+        }
+
+        function addDays(date, days) {
+            var result = new Date(date);
+            result.setDate(result.getDate() + days);
+            return result;
+        }
+
+        function formatDateISO(date) {
+            return date.toISOString().split('T')[0];
+        }
+
+        function formatDateBr(date) {
+            return date.toLocaleDateString('pt-BR');
+        }
+
+        function changeWeek(direction) {
+            currentWeekStart = addDays(currentWeekStart, direction * 7);
+            renderDashboard();
+        }
+
+        // --- RENDERIZAÇÃO ---
+        function renderDashboard() {
+            const container = document.getElementById('tables-container');
+            container.innerHTML = '';
+
+            // Definir os dias da semana atual
+            const weekDays = [];
+            const headerDaysHtml = [];
+            
+            const daysNames = ['Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta'];
+            
+            for(let i=0; i<5; i++) {
+                const dayDate = addDays(currentWeekStart, i);
+                const isoDate = formatDateISO(dayDate);
+                weekDays.push(isoDate);
+                
+                // Highlight hoje
+                const isToday = isoDate === formatDateISO(new Date());
+                const bgClass = isToday ? 'bg-blue-50 text-blue-700 border-b-2 border-blue-500' : 'bg-gray-50 text-gray-500';
+
+                headerDaysHtml.push(`
+                    <th class="px-2 py-3 text-center text-xs font-medium uppercase tracking-wider border-l border-gray-200 ${bgClass} w-32">
+                        ${daysNames[i]} <br> <span class="text-[10px] opacity-75">${dayDate.getDate()}/${dayDate.getMonth()+1}</span>
+                    </th>
+                `);
+            }
+
+            // Atualizar Label da Semana
+            const startLabel = formatDateBr(currentWeekStart);
+            const endLabel = formatDateBr(addDays(currentWeekStart, 4)); // Sexta
+            document.getElementById('current-week-label').innerText = `Semana: ${startLabel} a ${endLabel}`;
+
+            // Agrupar Clientes por Tag (Serviço)
+            const groupedData = {};
+            // Inicializa grupos
+            Object.keys(SERVICE_GROUPS).forEach(key => groupedData[key] = []);
+            groupedData['OUTROS'] = [];
+
+            // Mapear tags do banco para facilitar
+            const tagMap = {}; 
+            appData.tags.forEach(t => tagMap[t.id_tag] = t); // id -> obj
+
+            appData.clients.forEach(client => {
+                const status = (client.status || '').toLowerCase();
+                if (status.includes('cancelado')) return; // Filtra cancelados
+
+                // Descobrir tags do cliente
+                const clientTags = appData.client_tags.filter(ct => ct.id_cliente === client.id_cliente);
+                
+                let addedToGroup = false;
+
+                if (clientTags.length > 0) {
+                    clientTags.forEach(ct => {
+                        const tagObj = tagMap[ct.id_tag];
+                        if (tagObj) {
+                            // Tenta casar pelo nome ou ID se bater com nosso SERVICE_GROUPS
+                            // O user disse que o CSV tem TAG-01. Vamos assumir que a TAG no banco tem um nome ou codigo similar
+                            // Se não tivermos o código exato, vamos tentar verificar se o nome contém "Chatbot", "Trafego", etc.
+                            
+                            let groupKey = 'OUTROS';
+                            const tagNameUpper = (tagObj.nome_tag || '').toUpperCase();
+                            const tagIdStr = (tagObj.id_tag || '').toString(); // Caso id seja string 'TAG-01'
+
+                            // Tentar match pelo ID direto (se o banco usar string IDs iguais ao CSV)
+                            if (SERVICE_GROUPS[tagIdStr]) groupKey = tagIdStr;
+                            // Tentar match pelo nome
+                            else if (tagNameUpper.includes('CHATBOT')) groupKey = 'TAG-01';
+                            else if (tagNameUpper.includes('TRÁFEGO') || tagNameUpper.includes('TRAFEGO')) groupKey = 'TAG-02';
+                            else if (tagNameUpper.includes('MARKETING')) groupKey = 'TAG-03';
+                            else if (tagNameUpper.includes('VENDA')) groupKey = 'TAG-04';
+
+                            // Evitar duplicar o cliente na visualização se ele tiver 2 tags do mesmo grupo (raro)
+                            // Mas se tiver tags de grupos diferentes, ele aparece em ambas as tabelas (Checklist feature)
+                            
+                            // Adiciona na lista temporaria
+                            if (!groupedData[groupKey]) groupedData[groupKey] = [];
+                            
+                            // Verifica se ja adicionou esse cliente nesse grupo
+                            const exists = groupedData[groupKey].find(c => c.id_cliente === client.id_cliente);
+                            if(!exists) {
+                                groupedData[groupKey].push(client);
+                                addedToGroup = true;
+                            }
+                        }
+                    });
+                } 
+                
+                if (!addedToGroup) {
+                    // Se não tem tag ou não caiu em grupo conhecido, vai pra outros
+                    // Mas evita duplicata se ja foi processado
+                    const exists = groupedData['OUTROS'].find(c => c.id_cliente === client.id_cliente);
+                    if(!exists) groupedData['OUTROS'].push(client);
+                }
+            });
+
+            // Gerar HTML
+            Object.keys(groupedData).forEach(groupKey => {
+                const clientsList = groupedData[groupKey];
+                if (clientsList.length === 0) return;
+
+                const meta = SERVICE_GROUPS[groupKey] || { name: 'Outros Serviços', color: 'gray', icon: 'fa-folder' };
+
+                // Ordenar alfabeticamente
+                clientsList.sort((a,b) => a.nome_empresa.localeCompare(b.nome_empresa));
+
+                let rowsHtml = '';
+                clientsList.forEach((client, idx) => {
+                    const rowClass = idx % 2 === 0 ? 'bg-white' : 'bg-gray-50';
+                    
+                    // Colunas de Dias
+                    let daysCells = '';
+                    weekDays.forEach(dateStr => {
+                        // Buscar tarefas para este cliente nesta data
+                        const tasksForDay = appData.tasks.filter(t => 
+                            t.id_cliente === client.id_cliente && 
+                            t.prazo_final === dateStr
+                        );
+
+                        let content = '';
+                        if (tasksForDay.length > 0) {
+                            const completedCount = tasksForDay.filter(t => t.concluido).length;
+                            const total = tasksForDay.length;
+                            const allDone = completedCount === total;
+                            
+                            let colorClass = allDone ? 'bg-green-100 text-green-700 border-green-200' : 'bg-blue-100 text-blue-700 border-blue-200';
+                            if (total > 0 && completedCount === 0) colorClass = 'bg-orange-100 text-orange-700 border-orange-200';
+
+                            content = `
+                                <div class="w-full h-full p-2 rounded border ${colorClass} text-xs font-semibold flex flex-col items-center justify-center gap-1 shadow-sm">
+                                    <span>${completedCount}/${total}</span>
+                                    <div class="flex gap-0.5">
+                                        ${tasksForDay.slice(0,3).map(t => `<span class="task-dot ${t.concluido ? 'bg-green-500' : 'bg-orange-400'}"></span>`).join('')}
+                                        ${tasksForDay.length > 3 ? '<span class="text-[8px]">+</span>' : ''}
+                                    </div>
+                                </div>
+                            `;
+                        } else {
+                            content = `<div class="w-full h-full flex items-center justify-center opacity-0 hover:opacity-100"><i class="fas fa-plus text-gray-300"></i></div>`;
+                        }
+
+                        daysCells += `
+                            <td onclick="openDayModal('${client.id_cliente}', '${dateStr}')" 
+                                class="border-l border-gray-100 p-1 h-14 cell-hover transition-colors text-center align-middle relative">
+                                ${content}
+                            </td>
+                        `;
+                    });
+
+                    // Whatsapp
+                    const wppUrl = client.whatsapp ? `https://wa.me/${client.whatsapp.replace(/\D/g,'')}` : '#';
+                    const wppIcon = client.whatsapp ? `<a href="${wppUrl}" target="_blank" class="text-green-500 hover:text-green-600" onclick="event.stopPropagation()"><i class="fab fa-whatsapp"></i></a>` : '';
+
+                    rowsHtml += `
+                        <tr class="${rowClass} hover:bg-blue-50">
+                            <td class="px-6 py-4 whitespace-nowrap">
+                                <div class="text-sm font-bold text-gray-900">${client.nome_empresa}</div>
+                                <div class="text-xs text-gray-500">${client.nome_responsavel || ''}</div>
+                            </td>
+                            <td class="px-6 py-4 whitespace-nowrap text-center">
+                                ${wppIcon}
+                            </td>
+                            ${daysCells}
+                        </tr>
+                    `;
+                });
+
+                const section = `
+                    <div class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+                        <div class="px-6 py-4 border-b border-gray-200 bg-gray-50 flex items-center gap-3">
+                            <div class="bg-${meta.color}-100 text-${meta.color}-600 p-2 rounded-lg">
+                                <i class="fas ${meta.icon}"></i>
+                            </div>
+                            <h2 class="text-lg font-bold text-gray-800">${meta.name}</h2>
+                            <span class="bg-white border text-gray-500 text-xs px-2 py-1 rounded-full">${clientsList.length}</span>
+                        </div>
+                        <div class="overflow-x-auto">
+                            <table class="min-w-full divide-y divide-gray-200">
+                                <thead class="bg-gray-50">
+                                    <tr>
+                                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-1/4">Empresa</th>
+                                        <th class="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider w-16">Wpp</th>
+                                        ${headerDaysHtml.join('')}
+                                    </tr>
+                                </thead>
+                                <tbody class="bg-white divide-y divide-gray-200">
+                                    ${rowsHtml}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                `;
+                container.innerHTML += section;
+            });
+        }
+
+        // --- MODAL & TASK LOGIC ---
+        function openDayModal(clientId, dateStr) {
+            const client = appData.clients.find(c => c.id_cliente == clientId);
+            if (!client) return;
+
+            activeModalClient = client;
+            activeModalDate = dateStr;
+
+            document.getElementById('modal-client-name').innerText = client.nome_empresa;
+            
+            // Formatar data bonita
+            const parts = dateStr.split('-');
+            const dateObj = new Date(parts[0], parts[1]-1, parts[2]);
+            document.getElementById('modal-date-display').innerText = dateObj.toLocaleDateString('pt-BR', { weekday: 'long', day: 'numeric', month: 'long' });
+
+            document.getElementById('task-modal').classList.remove('hidden');
+            renderModalTasks();
+        }
+
+        function closeModal() {
+            document.getElementById('task-modal').classList.add('hidden');
+            activeModalClient = null;
+            activeModalDate = null;
+        }
+
+        function renderModalTasks() {
+            const listContainer = document.getElementById('modal-task-list');
+            listContainer.innerHTML = '';
+
+            const tasks = appData.tasks.filter(t => t.id_cliente == activeModalClient.id_cliente && t.prazo_final === activeModalDate);
+
+            if (tasks.length === 0) {
+                listContainer.innerHTML = `
+                    <div class="text-center py-8 text-gray-400">
+                        <i class="fas fa-clipboard-check text-4xl mb-3 opacity-20"></i>
+                        <p>Nenhuma tarefa agendada para este dia.</p>
+                    </div>
+                `;
+            } else {
+                tasks.forEach(task => {
+                    const resp = appData.users.find(u => u.id_usuario == task.responsavel_id);
+                    const respName = resp ? resp.nome_usuario : 'Sem dono';
+                    
+                    const div = document.createElement('div');
+                    div.className = `flex items-start justify-between p-3 mb-2 rounded border ${task.concluido ? 'bg-green-50 border-green-100' : 'bg-white border-gray-200'}`;
+                    div.innerHTML = `
+                        <div class="flex items-start gap-3">
+                            <input type="checkbox" onchange="toggleTask('${task.id_tarefa}', this.checked)" ${task.concluido ? 'checked' : ''} class="mt-1 h-4 w-4 text-green-600 rounded cursor-pointer">
+                            <div>
+                                <p class="text-sm font-medium text-gray-800 ${task.concluido ? 'line-through text-gray-500' : ''}">${task.titulo_tarefa}</p>
+                                <span class="text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full mt-1 inline-block">${respName}</span>
+                            </div>
+                        </div>
+                        <button onclick="deleteTask('${task.id_tarefa}')" class="text-gray-300 hover:text-red-500"><i class="fas fa-trash"></i></button>
+                    `;
+                    listContainer.appendChild(div);
+                });
+            }
+        }
+
+        // --- CRUD TAREFAS ---
+        async function createTask() {
+            const titleInput = document.getElementById('new-task-title');
+            const respInput = document.getElementById('new-task-responsible');
+            
+            const title = titleInput.value.trim();
+            const respId = respInput.value;
+
+            if (!title) {
+                showToast("Digite o título da tarefa.");
+                return;
+            }
+
+            const btn = document.getElementById('btn-save-task');
+            const originalText = btn.innerHTML;
+            btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
+            btn.disabled = true;
+
+            try {
+                const uniqueId = `TSK-${Date.now()}`; // Gerando ID simples como no seu CRM
+                const newTask = {
+                    id_tarefa: uniqueId,
+                    id_cliente: activeModalClient.id_cliente,
+                    titulo_tarefa: title,
+                    responsavel_id: respId || null,
+                    prazo_final: activeModalDate,
+                    concluido: false,
+                    ordem: 0
+                };
+
+                const { data, error } = await dbClient.from('tarefas').insert([newTask]).select();
+                
+                if (error) throw error;
+                
+                // Limpar form
+                titleInput.value = '';
+                showToast("Tarefa criada!");
+                // O realtime vai atualizar a lista global, mas atualizamos o modal manualmente pra ser instantaneo
+                // (O realtime update pode demorar ms)
+                appData.tasks.push(newTask);
+                renderModalTasks();
+                renderDashboard(); // Atualiza a contagem na tabela de fundo
+
+            } catch (err) {
+                console.error(err);
+                showToast("Erro ao criar tarefa.");
+            } finally {
+                btn.innerHTML = originalText;
+                btn.disabled = false;
+            }
+        }
+
+        async function toggleTask(taskId, completed) {
+            // Optimistic update
+            const task = appData.tasks.find(t => t.id_tarefa == taskId);
+            if(task) task.concluido = completed;
+            renderModalTasks();
+            renderDashboard();
+
+            const { error } = await dbClient.from('tarefas').update({ concluido: completed }).eq('id_tarefa', taskId);
+            if(error) {
+                showToast("Erro ao atualizar.");
+                // Reverter se der erro
+                if(task) task.concluido = !completed;
+                renderModalTasks();
+            }
+        }
+
+        async function deleteTask(taskId) {
+            if(!confirm("Excluir esta tarefa?")) return;
+
+            // Optimistic
+            appData.tasks = appData.tasks.filter(t => t.id_tarefa != taskId);
+            renderModalTasks();
+            renderDashboard();
+
+            const { error } = await dbClient.from('tarefas').delete().eq('id_tarefa', taskId);
+            if(error) showToast("Erro ao excluir.");
+        }
+
+        // --- UTILS ---
+        function showToast(msg) {
+            const t = document.getElementById('toast');
+            t.innerText = msg;
+            t.classList.remove('opacity-0', 'translate-y-2');
+            setTimeout(() => t.classList.add('opacity-0', 'translate-y-2'), 3000);
+        }
+    </script>
+</body>
+</html>

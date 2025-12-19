@@ -24,7 +24,7 @@
         ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
         ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
 
-        .cell-hover:hover { background-color: #f0fdf4; cursor: pointer; transition: background-color 0.2s; } /* Hover verde claro */
+        .cell-hover:hover { background-color: #ecfdf5 !important; cursor: pointer; transition: background-color 0.2s; } /* Hover verde claro mais forte */
         .task-dot { height: 8px; width: 8px; border-radius: 50%; display: inline-block; margin-right: 2px; }
         
         /* Badge de pendências */
@@ -485,11 +485,12 @@
                 const isoDate = formatDateISO(dayDate);
                 weekDays.push(isoDate);
                 
+                // DESTAQUE PARA HOJE: Fundo diferente, texto Prisme e borda mais grossa
                 const isToday = isoDate === formatDateISO(new Date());
-                const bgClass = isToday ? 'bg-green-50 text-[#2fc36a] border-b-2 border-[#2fc36a]' : 'bg-gray-50 text-gray-500';
+                const bgClass = isToday ? 'bg-[#f0fdf4] text-[#2fc36a] border-b-4 border-[#2fc36a] font-bold' : 'bg-gray-50 text-gray-500 font-medium';
 
                 headerDaysHtml.push(`
-                    <th class="px-2 py-3 text-center text-xs font-medium uppercase tracking-wider border-l border-gray-200 ${bgClass} w-32">
+                    <th class="px-2 py-3 text-center text-xs uppercase tracking-wider border-l border-gray-200 ${bgClass} w-32">
                         ${daysNames[i]} <br> <span class="text-[10px] opacity-75 font-normal">${dayDate.getDate()}/${dayDate.getMonth()+1}</span>
                     </th>
                 `);
@@ -573,6 +574,10 @@
                             extractDateISO(t.prazo_final) === dateStr
                         );
 
+                        // DESTAQUE DA COLUNA DE HOJE: Aplica bg-[#f0fdf4] (verde bem claro) se for o dia de hoje
+                        const isToday = dateStr === formatDateISO(new Date());
+                        const cellBgClass = isToday ? 'bg-[#f0fdf4]' : '';
+
                         let content = '';
                         if (tasksForDay.length > 0) {
                             const completedCount = tasksForDay.filter(t => t.concluido).length;
@@ -581,7 +586,6 @@
                             
                             // Cores das células: verde para tudo pronto, verde claro para parcial
                             let colorClass = allDone ? 'bg-[#2fc36a] text-white border-[#2fc36a]' : 'bg-[#e6f9ed] text-[#2fc36a] border-[#2fc36a]';
-                            // Para tarefas em aberto sem progresso, manter uma cor de alerta leve se quiser, ou usar o padrão verde claro da Prisme
                             if (total > 0 && completedCount === 0) colorClass = 'bg-orange-100 text-orange-700 border-orange-200';
 
                             content = `
@@ -599,7 +603,7 @@
 
                         daysCells += `
                             <td onclick="openDayModal('${client.id_cliente}', '${dateStr}')" 
-                                class="border-l border-gray-100 p-1 h-16 cell-hover align-middle relative">
+                                class="border-l border-gray-100 p-1 h-16 cell-hover align-middle relative ${cellBgClass}">
                                 ${content}
                             </td>
                         `;
